@@ -25,8 +25,26 @@
 
 ### 1. 作为 CodeBuddy Skill 使用（推荐）
 
-将本目录作为 Skill 安装（或放到项目的 `.codebuddy/skills/supervisor-agent/`），并确保
-`.codebuddy/agents/worker.md` 与 `reflector.md` 就位。然后在 CodeBuddy 对话中说：
+> **先厘清概念（关键）**
+> - `supervisor-agent` 是 **Skill**，不会出现在"Agent 列表"里，靠**对话意图**触发（CodeBuddy 依据 `SKILL.md` 的 `description` 匹配）。
+> - `worker` / `reflector` 才是 **子智能体（Agent）**，会出现在 Agent 列表中。
+
+#### 安装位置（三选一）
+
+CodeBuddy 只扫描**当前打开的工作区根目录**下的 `.codebuddy/`，因此请按下列任一方式放置：
+
+| 方式 | Skill 放置 | 子智能体放置 | 生效范围 |
+|------|-----------|-------------|---------|
+| A. 项目级 `.codebuddy` | `<工作区根>/.codebuddy/skills/supervisor-agent/`（含 `SKILL.md`+`scripts/`+`references/`） | `<工作区根>/.codebuddy/agents/worker.md`、`reflector.md` | 当前项目 |
+| B. 扁平子目录 | 整个仓库放到 `<工作区根>/supervisor-agent/`（`SKILL.md` 位于该目录一级） | `<工作区根>/.codebuddy/agents/`（复制一份到工作区根） | 当前项目 |
+| C. 用户级 | `~/.codebuddy/skills/supervisor-agent/` | `~/.codebuddy/agents/` | 所有项目 |
+
+> ⚠️ 常见坑：若把 `.codebuddy/` 埋在子目录里（如 `<工作区根>/supervisor-agent/.codebuddy/...`），CodeBuddy **扫不到**。
+> 子智能体务必位于**工作区根或用户级**的 `.codebuddy/agents/` 下，Agent 列表才会显示 `worker` / `reflector`。
+
+#### 触发
+
+安装并重新打开工作区后，在 CodeBuddy 对话中说：
 
 ```
 用 supervisor-agent 跑 example_tasks.json，开启性能监控与自动调优
@@ -41,10 +59,10 @@ cd supervisor-agent
 pip install -r requirements.txt          # tiktoken 可选
 
 # 离线演示（无需 CodeBuddy CLI）
-python .codebuddy/skills/supervisor-agent/scripts/run.py --tasks example_tasks.json --mock
+python scripts/run.py --tasks example_tasks.json --mock
 
 # 真实运行：脚本通过 `codebuddy -p` 调用子智能体（无外部 API）
-python .codebuddy/skills/supervisor-agent/scripts/run.py --tasks example_tasks.json
+python scripts/run.py --tasks example_tasks.json
 ```
 
 ## 输出与可观测性
