@@ -41,10 +41,10 @@ cd supervisor-agent
 pip install -r requirements.txt          # tiktoken 可选
 
 # 离线演示（无需 CodeBuddy CLI）
-python scripts/run.py --tasks example_tasks.json --mock
+python .codebuddy/skills/supervisor-agent/scripts/run.py --tasks example_tasks.json --mock
 
 # 真实运行：脚本通过 `codebuddy -p` 调用子智能体（无外部 API）
-python scripts/run.py --tasks example_tasks.json
+python .codebuddy/skills/supervisor-agent/scripts/run.py --tasks example_tasks.json
 ```
 
 ## 输出与可观测性
@@ -82,31 +82,33 @@ workspace/
 
 ```
 supervisor-agent/
-├── SKILL.md                      # CodeBuddy Skill 主文件（执行流程）
 ├── README.md / requirements.txt / LICENSE
 ├── example_tasks.json            # 示例任务
-├── .codebuddy/
-│   └── agents/
-│       ├── worker.md             # Worker 子智能体（CodeBuddy 原生格式）
-│       └── reflector.md          # Reflector 子智能体（meta-critic）
-├── scripts/
-│   ├── run.py                    # 入口（无头编排，调用 CodeBuddy CLI）
-│   └── agent/                    # 实现包
-│       ├── models.py             # Task / Trace / ReflectionResult / Verdict
-│       ├── config.py             # 配置（CodeBuddy CLI / 阈值，无外部 API）
-│       ├── llms.py               # CodeBuddyRunner（调用 codebuddy CLI + mock）
-│       ├── task_queue.py         # 优先级 + 依赖队列
-│       ├── worker.py             # Worker：派发子智能体 + 解析 <<TRACE>>
-│       ├── monitor.py            # 性能观测与阈值判定
-│       ├── reflection.py         # 对话式反思 + 提示词调优
-│       ├── prompt_registry.py    # 版本化 Prompt 管理
-│       ├── trace_store.py        # JSONL 执行日志
-│       ├── supervisor.py         # 编排闭环
-│       └── cli.py                # 命令行
-└── references/
-    ├── architecture.md           # 架构与状态图
-    ├── reflection_prompt.md      # 反思 Prompt 模板
-    └── metrics_spec.md           # 指标与阈值规范
+└── .codebuddy/
+    ├── skills/
+    │   └── supervisor-agent/      # CodeBuddy Skill（IDE 自动加载）
+    │       ├── SKILL.md           # Skill 主文件（执行流程 / 触发条件）
+    │       ├── scripts/
+    │       │   ├── run.py         # 入口（无头编排，调用 CodeBuddy CLI）
+    │       │   └── agent/         # 实现包
+    │       │       ├── models.py             # Task / Trace / ReflectionResult / Verdict
+    │       │       ├── config.py             # 配置（CodeBuddy CLI / 阈值，无外部 API）
+    │       │       ├── llms.py               # CodeBuddyRunner（调用 codebuddy CLI + mock）
+    │       │       ├── task_queue.py         # 优先级 + 依赖队列
+    │       │       ├── worker.py             # Worker：派发子智能体 + 解析 <<TRACE>>
+    │       │       ├── monitor.py            # 性能观测与阈值判定
+    │       │       ├── reflection.py         # 对话式反思 + 提示词调优
+    │       │       ├── prompt_registry.py    # 版本化 Prompt 管理
+    │       │       ├── trace_store.py        # JSONL 执行日志
+    │       │       ├── supervisor.py         # 编排闭环
+    │       │       └── cli.py                # 命令行
+    │       └── references/
+    │           ├── architecture.md           # 架构与状态图
+    │           ├── reflection_prompt.md      # 反思 Prompt 模板
+    │           └── metrics_spec.md           # 指标与阈值规范
+    └── agents/
+        ├── worker.md             # Worker 子智能体（CodeBuddy 原生格式）
+        └── reflector.md          # Reflector 子智能体（meta-critic）
 ```
 
 ## 推荐技术选型（CodeBuddy 原生）

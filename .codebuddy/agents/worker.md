@@ -4,12 +4,10 @@ description: >
   Worker Agent for the Supervisor. Executes a single task following an injected
   System Prompt, may use tools, and reports execution metrics in a <<TRACE>>
   footer. Spawn this sub-agent whenever the Supervisor delegates a task to run.
-tools:
-  - read_file
-  - search_file
-  - search_content
-  - write_to_file
-  - execute_command
+agentMode: agentic
+enabled: true
+enabledAutoRun: true
+tools: read_file, search_file, search_content, write_to_file, execute_command
 ---
 
 You are a Worker Agent executing ONE task delegated by a Supervisor.

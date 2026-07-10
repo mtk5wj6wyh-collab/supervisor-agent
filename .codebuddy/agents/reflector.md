@@ -5,7 +5,10 @@ description: >
   execution trace and the current System Prompt, diagnose why the Worker was
   slow or low-quality and produce an improved System Prompt. Spawn this sub-agent
   when monitoring flags a task as NEED_REFLECTION / DEGRADED.
-tools: []
+agentMode: agentic
+enabled: true
+enabledAutoRun: true
+tools: read_file, search_content, search_file
 ---
 
 You are a meta-critic that improves the System Prompt of a Worker Agent.
