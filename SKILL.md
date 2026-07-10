@@ -22,8 +22,8 @@ System Prompt 并动态注入重跑或影响后续任务。**全程运行在 Cod
 ## 核心组件（均为 CodeBuddy 原生）
 
 - **Supervisor（你 / 本 skill）**：主智能体，负责编排闭环、状态机、监控阈值。
-- **`worker` 子智能体**（`../../agents/worker.md`）：执行单个任务，返回 `<<TRACE>>` 指标块。
-- **`reflector` 子智能体**（`../../agents/reflector.md`）：meta-critic，产出优化后的 Prompt。
+- **`worker` 子智能体**（`.codebuddy/agents/worker.md`）：执行单个任务，返回 `<<TRACE>>` 指标块。
+- **`reflector` 子智能体**（`.codebuddy/agents/reflector.md`）：meta-critic，产出优化后的 Prompt。
 - **`scripts/` 编排器**：可选，无头批量运行时通过 CodeBuddy CLI（`codebuddy -p`）驱动上述子智能体。
 
 ## 核心闭环
@@ -59,8 +59,8 @@ for each task in queue:
 
 ```bash
 cd supervisor-agent
-python .codebuddy/skills/supervisor-agent/scripts/run.py --tasks example_tasks.json          # 经 codebuddy -p 调用子智能体
-python .codebuddy/skills/supervisor-agent/scripts/run.py --tasks example_tasks.json --mock   # 离线自测（无需 CLI）
+python scripts/run.py --tasks example_tasks.json          # 经 codebuddy -p 调用子智能体
+python scripts/run.py --tasks example_tasks.json --mock   # 离线自测（无需 CLI）
 ```
 
 **方式 B — 交互式（本 skill 直接驱动）**：按下面的循环，对每个任务用 Task 工具派发 `worker` 子智能体，
