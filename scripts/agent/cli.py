@@ -1,15 +1,19 @@
-"""Command line interface for the Supervisor Agent.
+"""Command line interface for the Supervisor Agent (CodeBuddy-native).
+
+The orchestrator drives CodeBuddy's own runtime -- no external LLM API. In the
+IDE the SKILL.md spawns the Worker/Reflection sub-agents directly; headlessly
+this script shells out to the CodeBuddy CLI (default ``codebuddy -p``).
 
 Examples
 --------
-# Default run with a real LLM (reads SUPERVISOR_LLM_API_KEY from env)
-python agent/cli.py --tasks example_tasks.json
-
-# Offline demo (no API key needed)
+# Offline demo (no CLI needed)
 python agent/cli.py --tasks example_tasks.json --mock
 
-# Custom thresholds
-python agent/cli.py --tasks tasks.json --latency-ms 8000 --max-steps 8
+# Headless run via the CodeBuddy CLI
+python agent/cli.py --tasks example_tasks.json
+
+# Custom CLI command / thresholds
+python agent/cli.py --tasks tasks.json --cli-command "codebuddy -p" --latency-ms 8000
 """
 
 from __future__ import annotations
@@ -76,13 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Performance-aware Supervisor Agent with prompt auto-tuning.")
     p.add_argument("--tasks", required=True, help="Path to a JSON task list.")
     p.add_argument("--config", help="Path to a JSON config file (overrides env/defaults).")
-    p.add_argument("--mock", action="store_true", help="Use the offline mock LLM (no network).")
+    p.add_argument("--mock", action="store_true", help="Use the offline mock runner (no CodeBuddy CLI needed).")
+    p.add_argument("--mock-degrade", action="store_true", help="Force the mock worker to report a degraded trace (demo of the reflection loop).")
+    p.add_argument("--cli-command", help="CodeBuddy CLI command prefix, e.g. 'codebuddy -p'.")
     p.add_argument("--workspace", help="Workspace directory for state files.")
     p.add_argument("--latency-ms", type=int, help="Latency threshold in ms.")
     p.add_argument("--max-steps", type=int, help="Worker max_steps.")
     p.add_argument("--max-reflect", type=int, help="Max reflections per task.")
-    p.add_argument("--model", help="Worker LLM model name.")
-    p.add_argument("--reflection-model", help="Reflection LLM model name.")
     p.add_argument("--quiet", action="store_true", help="Reduce output.")
     return p
 
@@ -98,6 +102,10 @@ def main(argv=None):
     # CLI overrides
     if args.mock:
         cfg.mock = True
+    if args.mock_degrade:
+        cfg.mock_degrade = True
+    if args.cli_command:
+        cfg.cli_command = args.cli_command
     if args.workspace:
         cfg.workspace = args.workspace
     if args.latency_ms:
@@ -106,10 +114,6 @@ def main(argv=None):
         cfg.max_steps = args.max_steps
     if args.max_reflect is not None:
         cfg.max_reflections_per_task = args.max_reflect
-    if args.model:
-        cfg.model = args.model
-    if args.reflection_model:
-        cfg.reflection_model = args.reflection_model
     if args.quiet:
         cfg.verbose = False
 

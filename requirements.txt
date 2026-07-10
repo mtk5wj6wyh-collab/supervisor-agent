@@ -1,2 +1,7 @@
-openai>=1.30.0
+# No external LLM API dependency. The agent runs on CodeBuddy's own runtime:
+# the Supervisor is the CodeBuddy agent and Worker/Reflection are CodeBuddy
+# sub-agents (see .codebuddy/agents/). In headless mode the orchestrator shells
+# out to the CodeBuddy CLI (default `codebuddy -p`).
+#
+# tiktoken is OPTIONAL -- only improves token-count accuracy when installed.
 tiktoken>=0.5.0

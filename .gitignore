@@ -9,6 +9,8 @@ venv/
 supervisor_workspace/
 demo_workspace/
 demo_workspace2/
+ci_workspace/
+ci_test*/
 workspace/
 *.jsonl
 

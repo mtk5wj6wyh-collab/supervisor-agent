@@ -1,42 +1,37 @@
 """Reflection & Prompt Tuner: conversational prompt auto-optimization.
 
-Implements a Reflexion-style loop. Given a Task, its Worker Trace, the current
-System Prompt and tool description, an LLM (the "meta-critic") is asked to:
+Implements a Reflexion-style loop via the CodeBuddy runtime (no external API).
+Given a Task, its Worker Trace, the current System Prompt and tool description,
+a CodeBuddy agent (the "meta-critic", default sub-agent ``reflector``) is asked
+to diagnose the root cause and produce an improved System Prompt. The produced
+prompt is versioned by the Prompt Registry.
 
-1. Diagnose the root cause of the slow-down / quality drop.
-2. Rewrite the System Prompt (more concise, fewer redundant tool calls,
-   explicit stop condition).
-3. Optionally suggest a trimmed tool description or a max_steps / model change.
-
-The produced prompt is versioned by the Prompt Registry. In mock mode a
-deterministic improved prompt is returned so the closed loop is verifiable.
+In mock mode a deterministic improved prompt is returned so the closed loop is
+verifiable offline.
 """
 
 from __future__ import annotations
 
 import json
 import re
-import time
-from typing import Dict, Optional
+from typing import List, Optional
 
 from .config import SupervisorConfig
-from .llms import LLMClient
+from .llms import CodeBuddyRunner
 from .models import ReflectionResult, Task, Trace
 
-REFLECTION_SYSTEM = (
-    "You are a meta-critic that improves the System Prompt of a Worker Agent. "
-    "You receive the original task, the Worker's execution trace (timing, steps, "
-    "tool calls) and the current System Prompt. You must output STRICT JSON only, "
-    "no prose, in this schema:\n"
-    "{\n"
-    '  "root_cause": "<why the worker was slow / low-quality>",\n'
-    '  "new_system_prompt": "<improved, more concise prompt with explicit stop rule>",\n'
-    '  "new_tool_desc": null or "<trimmed tool description>",\n'
-    '  "suggestion": "<e.g. lower max_steps to 8 / switch to a lighter model>"\n'
-    "}"
-)
+REFLECT_PROMPT = """You are a meta-critic that improves the System Prompt of a Worker Agent.
+You receive the original task, the Worker's execution trace (timing, steps,
+tool calls) and the current System Prompt. Output STRICT JSON ONLY, no prose,
+in this schema:
+{{
+  "root_cause": "<why the worker was slow / low-quality>",
+  "new_system_prompt": "<improved, more concise prompt with explicit stop rule>",
+  "new_tool_desc": null or "<trimmed tool description>",
+  "suggestion": "<e.g. lower max_steps to 8 / switch to a lighter model>"
+}}
 
-_USER_TEMPLATE = """# Original task
+# Original task
 {task}
 
 # Worker execution trace
@@ -57,23 +52,21 @@ _USER_TEMPLATE = """# Original task
 {tool_desc}
 
 Rewrite the System Prompt so the Worker finishes faster and with higher quality.
-Return only the JSON object described in your instructions."""
+Return only the JSON object described above."""
 
 
 def _strip_fences(text: str) -> str:
     text = text.strip()
     m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
-    if m:
-        return m.group(1).strip()
-    return text
+    return m.group(1).strip() if m else text
 
 
-def _build_user(task: Task, trace: Trace, current_prompt: str, tool_desc: Optional[str], reasons) -> str:
-    return _USER_TEMPLATE.format(
+def _build_prompt(task, trace, current_prompt, tool_desc, reasons, max_steps) -> str:
+    return REFLECT_PROMPT.format(
         task=task.description,
         elapsed_ms=trace.elapsed_ms,
         step_count=trace.step_count,
-        max_steps="{max_steps}",
+        max_steps=max_steps,
         input_tokens=trace.input_tokens,
         output_tokens=trace.output_tokens,
         tool_seq=trace.tool_call_sequence,
@@ -86,9 +79,9 @@ def _build_user(task: Task, trace: Trace, current_prompt: str, tool_desc: Option
 
 
 class ReflectionTuner:
-    def __init__(self, config: SupervisorConfig, llm: LLMClient):
+    def __init__(self, config: SupervisorConfig, runner: CodeBuddyRunner):
         self.cfg = config
-        self.llm = llm
+        self.runner = runner
 
     def reflect(
         self,
@@ -96,19 +89,17 @@ class ReflectionTuner:
         trace: Trace,
         current_prompt: str,
         tool_desc: Optional[str],
-        reasons: list,
+        reasons: List[str],
         new_version: str,
         max_steps: int,
     ) -> ReflectionResult:
-        user_msg = _build_user(task, trace, current_prompt, tool_desc, reasons).replace(
-            "{max_steps}", str(max_steps)
-        )
+        prompt = _build_prompt(task, trace, current_prompt, tool_desc, reasons, max_steps)
 
-        if self.cfg.mock:
+        if self.runner.mock:
             improved = (
                 current_prompt
-                + "\n\n[refined by mock reflection] Be concise, avoid repeated tool calls, "
-                "and stop as soon as the answer is found."
+                + "\n\n[refined by mock reflection] Be concise, avoid repeated tool "
+                "calls, and stop as soon as the answer is found."
             )
             return ReflectionResult(
                 version=new_version,
@@ -119,22 +110,14 @@ class ReflectionTuner:
                 triggered_by="; ".join(reasons) or "manual",
             )
 
-        resp = self.llm.chat(
-            [
-                {"role": "system", "content": REFLECTION_SYSTEM},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=0.4,
-        )
-        content = resp.content or ""
+        raw = self.runner.run(prompt)
         try:
-            data = json.loads(_strip_fences(content))
+            data = json.loads(_strip_fences(raw))
         except json.JSONDecodeError:
-            # Fallback: keep the prompt but note the parse failure.
             return ReflectionResult(
                 version=new_version,
                 root_cause="(reflection output could not be parsed)",
-                new_system_prompt=current_prompt + "\n[reflection note: " + content[:200] + "]",
+                new_system_prompt=current_prompt + "\n[reflection note: " + raw[:200] + "]",
                 new_tool_desc=tool_desc,
                 suggestion="",
                 triggered_by="; ".join(reasons) or "manual",

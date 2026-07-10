@@ -1,7 +1,12 @@
-"""Configuration for the Supervisor Agent.
+"""Configuration for the Supervisor Agent (CodeBuddy-native).
 
-All thresholds, model endpoints, worker constraints and storage paths live
-here. A config can be built from environment variables or a JSON file.
+This agent runs entirely on CodeBuddy's own runtime -- the Supervisor is the
+CodeBuddy agent and the Worker / Reflection roles are CodeBuddy sub-agents
+(defined under ``.codebuddy/agents/``). No external LLM HTTP endpoint is used.
+
+For headless batch runs, the Python orchestrator drives the CodeBuddy CLI
+(``cli_command``, default ``codebuddy -p``); in the IDE the SKILL.md instructs
+the CodeBuddy agent to spawn the sub-agents directly.
 """
 
 from __future__ import annotations
@@ -14,22 +19,21 @@ from typing import Optional
 
 @dataclass
 class SupervisorConfig:
-    # --- LLM endpoints (OpenAI-compatible) ---
-    model: str = "gpt-4o-mini"
-    reflection_model: Optional[str] = None
-    base_url: str = "https://api.openai.com/v1"
-    api_key: str = ""
-    api_timeout: float = 120.0
+    # --- CodeBuddy agent runtime (native, no external API) ---
+    cli_command: str = "codebuddy -p"  # command prefix to invoke a CodeBuddy agent headlessly
+    worker_subagent: str = "worker"
+    reflector_subagent: str = "reflector"
+    model: str = "default"  # label only; CodeBuddy selects the actual model
 
-    # --- Worker constraints ---
+    # --- Worker constraints (instructed to the sub-agent + used by Monitor) ---
     system_prompt: str = (
         "You are a diligent Worker Agent. Solve the user task step by step. "
-        "Use the provided tools when helpful. When the task is complete, reply "
-        "with a concise final answer and stop."
+        "Use the available tools when helpful. When the task is complete, reply "
+        "with a concise final answer and stop -- do not loop."
     )
     tool_desc: Optional[str] = None
     max_steps: int = 12
-    timeout_sec: float = 60.0
+    timeout_sec: float = 600.0
 
     # --- Monitor thresholds ---
     latency_threshold_ms: int = 15000
@@ -48,21 +52,20 @@ class SupervisorConfig:
 
     # --- Misc ---
     mock: bool = False
+    mock_degrade: bool = False  # force the mock worker to report a degraded trace
     verbose: bool = True
 
     @classmethod
     def from_env(cls) -> "SupervisorConfig":
         def get(name: str, default):
             v = os.getenv(name)
-            if v is None:
-                return default
-            return v
+            return v if v is not None else default
 
         return cls(
-            model=get("SUPERVISOR_LLM_MODEL", cls.model),
-            reflection_model=get("SUPERVISOR_REFLECTION_MODEL", None) or None,
-            base_url=get("SUPERVISOR_LLM_BASE_URL", cls.base_url),
-            api_key=get("SUPERVISOR_LLM_API_KEY", "") or "",
+            cli_command=get("SUPERVISOR_CLI_COMMAND", cls.cli_command),
+            worker_subagent=get("SUPERVISOR_WORKER_AGENT", cls.worker_subagent),
+            reflector_subagent=get("SUPERVISOR_REFLECTOR_AGENT", cls.reflector_subagent),
+            model=get("SUPERVISOR_MODEL", cls.model),
             max_steps=int(get("SUPERVISOR_MAX_STEPS", cls.max_steps)),
             latency_threshold_ms=int(get("SUPERVISOR_LATENCY_MS", cls.latency_threshold_ms)),
             token_p99_multiplier=float(get("SUPERVISOR_TOKEN_MULT", cls.token_p99_multiplier)),
@@ -71,6 +74,7 @@ class SupervisorConfig:
             enable_reflection=get("SUPERVISOR_REFLECTION", "1") != "0",
             workspace=get("SUPERVISOR_WORKSPACE", cls.workspace),
             mock=get("SUPERVISOR_MOCK", "0") == "1",
+            mock_degrade=get("SUPERVISOR_MOCK_DEGRADE", "0") == "1",
             verbose=get("SUPERVISOR_VERBOSE", "1") != "0",
         )
 

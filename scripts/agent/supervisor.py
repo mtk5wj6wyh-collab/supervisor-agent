@@ -25,7 +25,7 @@ import time
 from typing import List, Optional
 
 from .config import SupervisorConfig
-from .llms import LLMClient, Tool
+from .llms import CodeBuddyRunner, Tool
 from .models import Task, TaskStatus, Trace, Verdict
 from .monitor import Monitor
 from .prompt_registry import PromptRegistry
@@ -50,23 +50,16 @@ class Supervisor:
         self.trace_store = TraceStore(os.path.join(config.workspace, config.trace_store_file))
         self.monitor = Monitor(config)
 
-        worker_llm = LLMClient(
-            base_url=config.base_url,
-            api_key=config.api_key,
-            model=config.model,
-            timeout=config.api_timeout,
+        # CodeBuddy-native runtime: the Worker and Reflection roles are CodeBuddy
+        # sub-agents invoked through the CLI runner (headless) or directly in the IDE.
+        self.runner = CodeBuddyRunner(
+            cli_command=config.cli_command,
+            timeout=config.timeout_sec,
             mock=config.mock,
+            mock_degrade=config.mock_degrade,
         )
-        self.worker = WorkerAgent(config, worker_llm, tools)
-
-        reflection_llm = LLMClient(
-            base_url=config.base_url,
-            api_key=config.api_key,
-            model=config.reflection_model or config.model,
-            timeout=config.api_timeout,
-            mock=config.mock,
-        )
-        self.reflection = ReflectionTuner(config, reflection_llm)
+        self.worker = WorkerAgent(config, self.runner, tools)
+        self.reflection = ReflectionTuner(config, self.runner)
 
     def run(self):
         print(f"[supervisor] queue: {self.queue.summary()}")

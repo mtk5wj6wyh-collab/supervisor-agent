@@ -80,12 +80,12 @@ while queue.has_pending():
         # loop again with the new latest prompt (rerun)
 ```
 
-## 推荐技术选型（开源）
+## 推荐技术选型（CodeBuddy 原生）
 
-| 层 | 推荐 |
+| 层 | 采用 |
 |----|------|
-| 编排/Supervisor | 本仓库实现（手写 while + 模块）或 LangGraph（Conditional Edge 做 Monitor/Reflect 节点） |
-| Worker Agent | 本仓库 `WorkerAgent`（ReAct）或 smolagents / LangChain create_react_agent |
-| 反思 LLM | 同一模型或更强模型（GPT-4o / DeepSeek-V3） |
-| Trace & 日志 | 本仓库 JSONL + 文件，或 OpenTelemetry / SQLite |
-| Prompt 版本化 | 本仓库 `prompt_registry.json`，或 LangSmith Prompt Hub |
+| 编排/Supervisor | 本仓库 CodeBuddy Skill + 无头 Python 编排器（调用 `codebuddy -p`） |
+| Worker Agent | CodeBuddy 子智能体 `worker`（`.codebuddy/agents/worker.md`） |
+| 反思 LLM | CodeBuddy 子智能体 `reflector`（meta-critic） |
+| Trace & 日志 | 本仓库 JSONL + 文件 |
+| Prompt 版本化 | 本仓库 `prompt_registry.json` |

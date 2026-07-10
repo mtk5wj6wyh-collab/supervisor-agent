@@ -1,15 +1,21 @@
-"""LLM client (OpenAI-compatible) with an offline mock fallback.
+"""CodeBuddy-native runner for the Worker / Reflection sub-agents.
 
-The Worker Agent and the Reflection Tuner both talk to an LLM through this
-client. When no API key is available (or ``mock=True``) a deterministic mock
-responder is used so the full orchestration / monitor / reflection loop can be
-exercised without network access.
+There is NO external LLM HTTP endpoint. The Supervisor is the CodeBuddy agent,
+and the Worker / Reflection roles are CodeBuddy sub-agents. This module knows
+how to invoke a CodeBuddy agent:
+
+* In the IDE, the SKILL.md drives the sub-agents directly (via the Task tool).
+* Headlessly, ``run.py`` shells out to the CodeBuddy CLI (``cli_command``,
+  default ``codebuddy -p "<prompt>"``).
+
+A deterministic offline ``mock`` mode is kept so the whole orchestration /
+monitor / reflection loop can be exercised without a CLI.
 """
 
 from __future__ import annotations
 
-import json
-import os
+import re
+import subprocess
 import time
 from dataclasses import dataclass
 from typing import List, Optional
@@ -25,110 +31,78 @@ def count_tokens(text: str) -> int:
         enc = tiktoken.get_encoding("cl100k_base")
         return len(enc.encode(text))
     except Exception:
-        # ~4 chars per token is a reasonable approximation.
         return max(1, len(text) // 4)
-
-
-class _ToolCall:
-    def __init__(self, tc_id: str, name: str, arguments: str):
-        self.id = tc_id
-        self.function = _Function(name, arguments)
-
-
-class _Function:
-    def __init__(self, name: str, arguments: str):
-        self.name = name
-        self.arguments = arguments
-
-
-class _Msg:
-    """Minimal stand-in for an openai chat completion message."""
-
-    def __init__(self, content: Optional[str] = None, tool_calls: Optional[list] = None):
-        self.content = content
-        self.tool_calls = tool_calls or []
 
 
 @dataclass
 class Tool:
+    """A tool descriptor surfaced to the Worker sub-agent as text.
+
+    In the CodeBuddy-native design the Worker uses CodeBuddy's own tools, so a
+    Tool here is documentation only (``func`` is unused by the CLI path).
+    """
+
     name: str
     description: str
-    parameters: dict
-    func: callable
+    parameters: Optional[dict] = None
+    func: Optional[callable] = None
 
-    def to_openai_schema(self) -> dict:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
+    def describe(self) -> str:
+        return f"- {self.name}: {self.description}"
 
 
-class LLMClient:
+class CodeBuddyRunner:
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        timeout: float = 120.0,
+        cli_command: str = "codebuddy -p",
+        timeout: float = 600.0,
         mock: bool = False,
+        mock_degrade: bool = False,
     ):
-        self.base_url = base_url or os.getenv("SUPERVISOR_LLM_BASE_URL", "https://api.openai.com/v1")
-        self.api_key = api_key or os.getenv("SUPERVISOR_LLM_API_KEY", "")
-        self.model = model or os.getenv("SUPERVISOR_LLM_MODEL", "gpt-4o-mini")
+        self.cli_command = cli_command
         self.timeout = timeout
         self.mock = mock
-        self._client = None
+        self.mock_degrade = mock_degrade
 
-    def _ensure(self):
-        if self._client is None:
-            try:
-                from openai import OpenAI
-            except ImportError as e:
-                raise RuntimeError(
-                    "The 'openai' package is required for real LLM calls. "
-                    "Install it with `pip install openai`, or run with --mock."
-                ) from e
-            self._client = OpenAI(base_url=self.base_url, api_key=self.api_key, timeout=self.timeout)
-
-    def chat(self, messages: List[dict], tools=None, temperature: float = 0.3):
+    def run(self, prompt: str) -> str:
+        """Invoke a CodeBuddy agent with ``prompt`` and return its text output."""
         if self.mock:
-            return self._mock_chat(messages, tools)
-        self._ensure()
-        params = dict(model=self.model, messages=messages, temperature=temperature)
-        if tools:
-            params["tools"] = tools
-            params["tool_choice"] = "auto"
-        resp = self._client.chat.completions.create(**params)
-        return resp.choices[0].message
-
-    def _mock_chat(self, messages: List[dict], tools):
-        """Deterministic offline responder.
-
-        - If tools exist and none has been called yet, emit one tool call.
-        - Otherwise emit a final answer that echoes the last user message.
-        """
-        has_tool_result = any(m.get("role") == "tool" for m in messages)
-        last_user = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                last_user = m.get("content", "")
-                break
-
-        if tools and not has_tool_result:
-            schema = tools[0]
-            fn_name = schema["function"]["name"]
-            return _Msg(
-                content=None,
-                tool_calls=[_ToolCall("call_1", fn_name, json.dumps({"query": last_user[:80]}))],
+            return self._mock(prompt)
+        cmd = self.cli_command.split() + [prompt]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                shell=False,
             )
+            return (result.stdout or "") + (result.stderr or "")
+        except Exception as e:  # noqa: BLE001
+            return f"[runner-error] {type(e).__name__}: {e}"
 
-        return _Msg(
-            content=(
-                f"[mock-final-answer] Task processed. Summary of request: "
-                f"{last_user[:120]}"
+    def _mock(self, prompt: str) -> str:
+        # Emit a worker-like answer plus a <<TRACE>> footer so the Monitor can run.
+        if self.mock_degrade:
+            return (
+                "[mock-final-answer] task processed (degraded run).\n\n"
+                "<<TRACE>>\n"
+                "elapsed_ms: 0\n"
+                "step_count: 99\n"
+                "input_tokens: 200\n"
+                "output_tokens: 200\n"
+                "tool_call_count: 0\n"
+                "tool_calls: \n"
+                "<<END>>"
             )
+        return (
+            "[mock-final-answer] task processed.\n\n"
+            "<<TRACE>>\n"
+            "elapsed_ms: 0\n"
+            "step_count: 2\n"
+            "input_tokens: 120\n"
+            "output_tokens: 80\n"
+            "tool_call_count: 1\n"
+            "tool_calls: calculator\n"
+            "<<END>>"
         )
